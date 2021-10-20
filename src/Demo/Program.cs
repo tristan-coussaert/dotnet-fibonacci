@@ -1,14 +1,46 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using Fibonacci;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
-Stopwatch stopwatch = new();
-stopwatch.Start();
+var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+IConfiguration configuration = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddEnvironmentVariables()
+    .AddJsonFile("appsettings.json", false, true)
+    .AddJsonFile($"appsettings.{environmentName}.json", true, true)
+    .Build();
+var applicationSection = configuration.GetSection("Application");
+var applicationConfig = applicationSection.Get<ApplicationConfig>();
 
-using var fibonacciDataContext = new FibonacciDataContext();
 
-var tasks = await new Fibonacci.Compute(fibonacciDataContext).ExecuteAsync(args);
+var services = new ServiceCollection();  
+services.AddDbContext<FibonacciDataContext>(options => options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
+services.AddTransient<Fibo>();  
+services.AddLogging(configure => configure.AddConsole());
 
-foreach (var task in tasks) Console.WriteLine($"Fibo result: {task}");
-stopwatch.Stop();
-Console.WriteLine($"{stopwatch.Elapsed.Seconds} s");
+using (var serviceProvider = services.BuildServiceProvider())
+{
+    var logger =serviceProvider.GetService<ILogger<Fibo>>();
+    logger.LogInformation($"Application Name : {applicationConfig.Name}");
+    logger.LogInformation($"Application Message : {applicationConfig.Message}");
+
+
+    Stopwatch stopwatch = new();
+    stopwatch.Start();
+    var compute = serviceProvider.GetService<Fibo>();
+    var tasks = await compute.ExecuteAsync(args);
+    foreach (var task in tasks) Console.WriteLine($"Fibo result : {task}");
+    stopwatch.Stop();
+    Console.WriteLine($"{stopwatch.Elapsed.Seconds}s");
+}
+
+public class ApplicationConfig
+{
+    public string Name { get; set; }
+    public string Message { get; set; }
+}
